@@ -11,11 +11,11 @@ interface Highlight {
 function timeToSeconds(time: string): number {
   const parts = time.split(":").map(Number);
   if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return (parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0);
   } else if (parts.length === 2) {
-    return parts[0] * 60 + parts[1];
+    return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
   }
-  return parts[0];
+  return parts[0] ?? 0;
 }
 
 export async function createMontage(
@@ -37,7 +37,7 @@ export async function createMontage(
     return { start, end, duration };
   });
 
-  if (segments.length === 0) {
+  if (segments.length === 0 || !segments[0]) {
     throw new Error("No highlights to process");
   }
 
@@ -65,6 +65,9 @@ export async function createMontage(
     let accumulatedDuration = segments[0].duration;
 
     for (let i = 1; i < segments.length; i++) {
+      const segment = segments[i];
+      if (!segment) continue;
+
       const nextVideoLabel = `[v${i}]`;
       const nextAudioLabel = `[a${i}]`;
       const targetVideoLabel = i === segments.length - 1 ? "[v]" : `[vm${i}]`;
@@ -86,7 +89,7 @@ export async function createMontage(
 
       // Update duration: (DurA + DurB - Fade)
       accumulatedDuration =
-        accumulatedDuration + segments[i].duration - fadeDuration;
+        accumulatedDuration + segment.duration - fadeDuration;
     }
   } else {
     // Single segment, just map [v0] to [v] and [a0] to [a]

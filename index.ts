@@ -50,6 +50,73 @@ async function main() {
 
   console.log(`Watching folder: ${watchPath}`);
 
+  const MAX_CONCURRENT = 2;
+  let activeCount = 0;
+  const queue: (() => Promise<void>)[] = [];
+
+  async function processQueue() {
+    while (activeCount < MAX_CONCURRENT && queue.length > 0) {
+      const task = queue.shift();
+      if (task) {
+        activeCount++;
+        task().finally(() => {
+          activeCount--;
+          processQueue();
+        });
+      }
+    }
+  }
+
+  function addToQueue(task: () => Promise<void>) {
+    queue.push(task);
+    processQueue();
+  }
+
+  async function processVideo(filePath: string, filename: string) {
+    console.log(`File ready: ${filename}. Starting analysis...`);
+    
+    try {
+      const analysis = await analyzeClip(filePath);
+      console.log("Analysis complete. Title suggestion:", analysis.title);
+      console.log("Highlights found:", analysis.highlights.length);
+
+      const baseFileName = basename(filename, extname(filename));
+      
+      if (analysis.highlights.length > 0) {
+        console.log("Creating montage...");
+        try {
+          const outputPath = await createMontage(
+            filePath, 
+            analysis.highlights, 
+            `${baseFileName}_montage`
+          );
+          console.log(`Montage saved to: ${outputPath}`);
+          
+          // Construct description
+          const description = "Auto-generated Valorant Highlights\n\n" + 
+            analysis.highlights.map(h => `- ${h.description}`).join("\n");
+
+          console.log("Uploading to YouTube...");
+          try {
+            const videoId = await uploadVideo(outputPath, analysis.title, description);
+            console.log(`Successfully uploaded to YouTube! Video ID: ${videoId}`);
+            console.log(`Link: https://youtu.be/${videoId}`);
+          } catch (uploadError) {
+            console.error("Failed to upload to YouTube:", uploadError);
+          }
+
+        } catch (cutError) {
+          console.error(`Failed to create montage:`, cutError);
+        }
+      } else {
+        console.log("No highlights found to create a montage.");
+      }
+      
+    } catch (error) {
+      console.error(`Error analyzing ${filename}:`, error);
+    }
+  }
+
   watch(watchPath, async (eventType, filename) => {
     if (eventType === "rename" && filename) {
       const filePath = join(watchPath, filename);
@@ -64,49 +131,8 @@ async function main() {
           
           const isReady = await waitForFileToBeReady(filePath);
           if (isReady) {
-            console.log(`File ready: ${filename}. Starting analysis...`);
-            
-            try {
-              const analysis = await analyzeClip(filePath);
-              console.log("Analysis complete. Title suggestion:", analysis.title);
-              console.log("Highlights found:", analysis.highlights.length);
-
-              const baseFileName = basename(filename, extname(filename));
-              
-              if (analysis.highlights.length > 0) {
-                console.log("Creating montage...");
-                try {
-                  const outputPath = await createMontage(
-                    filePath, 
-                    analysis.highlights, 
-                    `${baseFileName}_montage`
-                  );
-                  console.log(`Montage saved to: ${outputPath}`);
-                  
-                  // Construct description
-                  const description = "Auto-generated Valorant Highlights\n\n" + 
-                    analysis.highlights.map(h => `- ${h.description}`).join("\n");
-
-                  console.log("Uploading to YouTube...");
-                  try {
-                    const videoId = await uploadVideo(outputPath, analysis.title, description);
-                    console.log(`Successfully uploaded to YouTube! Video ID: ${videoId}`);
-                    console.log(`Link: https://youtu.be/${videoId}`);
-                  } catch (uploadError) {
-                    console.error("Failed to upload to YouTube:", uploadError);
-                  }
-
-                } catch (cutError) {
-                  console.error(`Failed to create montage:`, cutError);
-                }
-              } else {
-                console.log("No highlights found to create a montage.");
-              }
-              
-            } catch (error) {
-              console.error(`Error analyzing ${filename}:`, error);
-            }
-
+            console.log(`Adding ${filename} to processing queue.`);
+            addToQueue(() => processVideo(filePath, filename));
           } else {
             console.error(`File never became ready: ${filename}`);
           }
