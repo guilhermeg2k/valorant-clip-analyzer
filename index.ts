@@ -1,5 +1,5 @@
 import { watch, statSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, readdir } from "node:fs/promises";
 import { join, extname, basename } from "node:path";
 import { analyzeClip } from "./gemini";
 import { createMontage } from "./video-processor";
@@ -118,6 +118,50 @@ async function main() {
     } catch (error) {
       console.error(`Error analyzing ${filename}:`, error);
     }
+  }
+
+  // Scan for existing files
+  try {
+    const files = await readdir(watchPath);
+    console.log(`Scanning for existing files in ${watchPath}...`);
+    
+    const videoExtensions = [".mp4", ".mkv", ".mov", ".avi"];
+    
+    for (const file of files) {
+      const filePath = join(watchPath, file);
+      const originalExt = extname(file);
+      const ext = originalExt.toLowerCase();
+      
+      if (videoExtensions.includes(ext)) {
+        try {
+          const fileStat = await stat(filePath);
+          if (fileStat.isFile()) {
+            const baseName = basename(file, originalExt);
+            // Check if processed file exists
+            const expectedOutput = join(watchPath, "processed", `${baseName}_montage${originalExt}`);
+            
+            let alreadyProcessed = false;
+            try {
+              await stat(expectedOutput);
+              alreadyProcessed = true;
+            } catch {
+              alreadyProcessed = false;
+            }
+            
+            if (!alreadyProcessed) {
+              console.log(`Found unprocessed file: ${file}`);
+              addToQueue(() => processVideo(filePath, file));
+            } else {
+              console.log(`Skipping ${file} (already processed)`);
+            }
+          }
+        } catch (e) {
+          console.error(`Error checking file ${file}:`, e);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error scanning directory:", err);
   }
 
   watch(watchPath, async (eventType, filename) => {
