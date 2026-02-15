@@ -1,0 +1,121 @@
+import { watch, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import { join, extname, basename } from "node:path";
+import { analyzeClip } from "./gemini";
+import { createMontage } from "./video-processor";
+import { uploadVideo } from "./youtube-uploader";
+
+interface Config {
+  watchPath: string;
+  geminiApiKey: string;
+  youtube: {
+    clientId: string;
+    clientSecret: string;
+    refreshToken: string;
+  };
+}
+
+async function loadConfig(): Promise<Config> {
+  const configContent = await readFile("./config.json", "utf-8");
+  return JSON.parse(configContent);
+}
+
+async function waitForFileToBeReady(filePath: string, interval = 1000, maxRetries = 30): Promise<boolean> {
+  let lastSize = -1;
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      const stats = await stat(filePath);
+      if (stats.size > 0 && stats.size === lastSize) {
+        return true; // File size is stable
+      }
+      lastSize = stats.size;
+    } catch (e) {
+      // File might not be accessible yet
+    }
+    await new Promise(resolve => setTimeout(resolve, interval));
+    retries++;
+  }
+  return false;
+}
+
+async function main() {
+  const config = await loadConfig();
+  const { watchPath } = config;
+
+  if (!config.geminiApiKey) {
+    console.warn("Warning: geminiApiKey is missing in config.json. Analysis will fail.");
+  }
+
+  console.log(`Watching folder: ${watchPath}`);
+
+  watch(watchPath, async (eventType, filename) => {
+    if (eventType === "rename" && filename) {
+      const filePath = join(watchPath, filename);
+      const videoExtensions = [".mp4", ".mkv", ".mov", ".avi"];
+      
+      if (videoExtensions.includes(extname(filename).toLowerCase())) {
+        try {
+          // Check if file still exists (it might be a deletion)
+          await stat(filePath);
+          
+          console.log(`\nNew video detected: ${filename}. Waiting for it to be ready...`);
+          
+          const isReady = await waitForFileToBeReady(filePath);
+          if (isReady) {
+            console.log(`File ready: ${filename}. Starting analysis...`);
+            
+            try {
+              const analysis = await analyzeClip(filePath);
+              console.log("Analysis complete. Title suggestion:", analysis.title);
+              console.log("Highlights found:", analysis.highlights.length);
+
+              const baseFileName = basename(filename, extname(filename));
+              
+              if (analysis.highlights.length > 0) {
+                console.log("Creating montage...");
+                try {
+                  const outputPath = await createMontage(
+                    filePath, 
+                    analysis.highlights, 
+                    `${baseFileName}_montage`
+                  );
+                  console.log(`Montage saved to: ${outputPath}`);
+                  
+                  // Construct description
+                  const description = "Auto-generated Valorant Highlights\n\n" + 
+                    analysis.highlights.map(h => `- ${h.description}`).join("\n");
+
+                  console.log("Uploading to YouTube...");
+                  try {
+                    const videoId = await uploadVideo(outputPath, analysis.title, description);
+                    console.log(`Successfully uploaded to YouTube! Video ID: ${videoId}`);
+                    console.log(`Link: https://youtu.be/${videoId}`);
+                  } catch (uploadError) {
+                    console.error("Failed to upload to YouTube:", uploadError);
+                  }
+
+                } catch (cutError) {
+                  console.error(`Failed to create montage:`, cutError);
+                }
+              } else {
+                console.log("No highlights found to create a montage.");
+              }
+              
+            } catch (error) {
+              console.error(`Error analyzing ${filename}:`, error);
+            }
+
+          } else {
+            console.error(`File never became ready: ${filename}`);
+          }
+        } catch (e) {
+          // File was likely deleted or renamed away
+        }
+      }
+    }
+  });
+}
+
+main().catch(console.error);

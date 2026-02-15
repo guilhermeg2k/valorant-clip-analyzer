@@ -1,0 +1,9 @@
+{
+  "watchPath": "./clips",
+  "geminiApiKey": "",
+  "youtube": {
+    "clientId": "",
+    "clientSecret": "",
+    "refreshToken": ""
+  }
+}
