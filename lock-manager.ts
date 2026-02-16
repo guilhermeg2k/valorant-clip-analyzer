@@ -35,8 +35,8 @@ export class LockManager {
         this.data = JSON.parse(readFileSync(LOCK_FILE, "utf-8"));
       }
     } catch (e) {
-      console.error("⚠️ Erro ao ler lockfile, criando um novo.", e);
-      this.data = {};
+      console.error("⚠️ Erro ao ler lockfile", e);
+      throw e;
     }
   }
 

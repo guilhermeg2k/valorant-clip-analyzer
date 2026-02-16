@@ -1,6 +1,7 @@
 {
   "watchPath": "./clips",
   "geminiApiKey": "",
+  "maxConcurrent": 2,
   "youtube": {
     "clientId": "",
     "clientSecret": "",

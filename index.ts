@@ -28,7 +28,7 @@ async function loadConfig(): Promise<Config> {
 function sanitizeFilename(title: string): string {
   // Replace illegal chars for Windows/Linux files
   let safeName = title.replace(/[<>:"/\\|?*]+/g, "-");
-  safeName = `${new Date().toISOString()}-${safeName}`;
+  safeName = `${safeName} - ${new Date().toISOString()}`;
   safeName = safeName.toLowerCase().replace(" ", "-");
   return safeName.trim().replace(/^\.+|\.+$/g, "") || "untitled_montage";
 }
@@ -72,7 +72,7 @@ async function main() {
   console.log(`🔒 Lock System: Active (process-lock.json)`);
 
   // --- QUEUE SYSTEM ---
-  const MAX_CONCURRENT = config.maxConcurrent;
+  const MAX_CONCURRENT = config.maxConcurrent ?? 1;
   let activeCount = 0;
   const queue: (() => Promise<void>)[] = [];
 
